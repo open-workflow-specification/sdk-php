@@ -1,4 +1,6 @@
 # Serverless Workflow Specification - PHP SDK
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fopen-workflow-specification%2Fsdk-php.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fopen-workflow-specification%2Fsdk-php?ref=badge_shield)
+
 
 Provides the PHP API/SPI for the [Serverless Workflow Specification](https://github.com/serverlessworkflow/specification).
 
@@ -91,3 +93,7 @@ WorkflowValidator::validate($workflow);
 ```
 
 The `validate` method will raise an exception if the provided workflow does not comply with the specification.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fopen-workflow-specification%2Fsdk-php.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fopen-workflow-specification%2Fsdk-php?ref=badge_large)
