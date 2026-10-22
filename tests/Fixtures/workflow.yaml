@@ -1,0 +1,33 @@
+document:
+  dsl: 1.0.1
+  namespace: examples
+  name: buy-pet
+  version: 0.1.0
+use:
+  timeouts:
+    short:
+      after:
+        seconds: 30
+do:
+  - getPet:
+      with:
+        method: get
+        endpoint:
+          uri: 'https://petstore.swagger.io/v2/pet/{petId}'
+          authentication:
+            bearer:
+              token: '${ .token }'
+      call: http
+      timeout: short
+  - markAsSold:
+      set:
+        status: sold
+  - buyPet:
+      with:
+        method: put
+        endpoint: 'https://petstore.swagger.io/v2/pet/{petId}'
+        body: '${ . + { status: .status } }'
+      call: http
+      then: end
+timeout:
+  after: PT5M
