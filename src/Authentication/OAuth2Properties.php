@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Copyright 2020-Present The Serverless Workflow Specification Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+namespace Serverless\Workflow\Authentication;
+
+use Serverless\Workflow\BaseObject;
+
+/**
+ * The properties shared by the OAuth2 and OpenID Connect authentication policies, inline or secret based (use).
+ */
+abstract class OAuth2Properties extends BaseObject
+{
+    /**
+     * The name of the secret holding the configuration.
+     */
+    public string|null $use = null;
+
+    public string|null $authority = null;
+
+    public string|null $grant = null;
+
+    public OAuth2Client|null $client = null;
+
+    public OAuth2TokenRequest|null $request = null;
+
+    /**
+     * @var list<string>|null
+     */
+    public array|null $issuers = null;
+
+    /**
+     * @var list<string>|null
+     */
+    public array|null $scopes = null;
+
+    /**
+     * @var list<string>|null
+     */
+    public array|null $audiences = null;
+
+    public string|null $username = null;
+
+    public string|null $password = null;
+
+    public OAuth2Token|null $subject = null;
+
+    public OAuth2Token|null $actor = null;
+}

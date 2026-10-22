@@ -20,14 +20,18 @@ declare(strict_types=1);
 
 namespace Serverless\Workflow;
 
+/**
+ * Represents an error.
+ */
 final class Error extends BaseObject
 {
-    public string|null $errorRef = null;
+    public string|null $type = null;
 
-    /** @var string[]|null */
-    public array|null $errorRefs = null;
+    public int|null $status = null;
 
-    public string|Transition|null $transition = null;
+    public string|null $instance = null;
 
-    public bool|End|null $end = null;
+    public string|null $title = null;
+
+    public string|null $detail = null;
 }

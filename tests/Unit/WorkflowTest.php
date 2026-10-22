@@ -18,95 +18,202 @@ declare(strict_types=1);
  * limitations under the License.
  */
 
-use PHPUnit\Framework\TestCase;
+namespace Serverless\Workflow\Tests\Unit;
 
-use Serverless\Workflow\Action;
-use Serverless\Workflow\ActionDataFilter;
-use Serverless\Workflow\FunctionDef;
-use Serverless\Workflow\FunctionRef;
-use Serverless\Workflow\OperationState;
+use PHPUnit\Framework\TestCase;
+use Serverless\Workflow\Components;
+use Serverless\Workflow\Document;
+use Serverless\Workflow\Duration;
+use Serverless\Workflow\Endpoint;
+use Serverless\Workflow\Task\Call\HttpArguments;
+use Serverless\Workflow\Task\CallHttp;
+use Serverless\Workflow\Task\SetTask;
+use Serverless\Workflow\Task\TryTask;
+use Serverless\Workflow\TaskList;
+use Serverless\Workflow\Timeout;
 use Serverless\Workflow\Workflow;
+use Serverless\Workflow\WorkflowValidationException;
 use Serverless\Workflow\WorkflowValidator;
 
 final class WorkflowTest extends TestCase
 {
-    public string $json;
+    private string $json;
 
-    public string $yaml;
+    private string $yaml;
 
-    public Workflow $workflow;
+    private Workflow $workflow;
 
     protected function setUp(): void
     {
-        $this->json = file_get_contents(__DIR__ . '/../Fixtures/workflow.json');
-        $this->yaml = file_get_contents(__DIR__ . '/../Fixtures/workflow.yaml');
+        $json = file_get_contents(__DIR__ . '/../Fixtures/workflow.json');
+        $yaml = file_get_contents(__DIR__ . '/../Fixtures/workflow.yaml');
+        self::assertNotFalse($json);
+        self::assertNotFalse($yaml);
+
+        $this->json = $json;
+        $this->yaml = $yaml;
         $this->workflow = Workflow::fromYaml($this->yaml);
     }
 
     public function testBuild(): void
     {
         $workflow = new Workflow([
-            'id' => 'greeting',
-            'name' => 'Greeting Workflow',
-            'description' => 'Greet Someone',
-            'version' => '1.0',
-            'specVersion' => '0.8',
-            'start' => 'Greet',
-            'states' => [
-                new OperationState([
-                    'name' => 'Greet',
-                    'type' => 'operation',
-                    'actions' => [
-                        new Action([
-                            'functionRef' => new FunctionRef([
-                                'refName' => 'greetingFunction',
-                                'arguments' => [
-                                    'name' => '${ .person.name }',
-                                ],
-                            ]),
-                            'actionDataFilter' => new ActionDataFilter([
-                                'results' => '${ .greeting }',
-                            ]),
+            'document' => new Document([
+                'dsl' => '1.0.1',
+                'namespace' => 'examples',
+                'name' => 'buy-pet',
+                'version' => '0.1.0',
+            ]),
+            'use' => new Components([
+                'timeouts' => [
+                    'short' => new Timeout([
+                        'after' => new Duration([
+                            'seconds' => 30,
                         ]),
+                    ]),
+                ],
+            ]),
+            'do' => new TaskList([
+                'getPet' => new CallHttp([
+                    'with' => new HttpArguments([
+                        'method' => 'get',
+                        'endpoint' => new Endpoint([
+                            'uri' => 'https://petstore.swagger.io/v2/pet/{petId}',
+                            'authentication' => [
+                                'bearer' => [
+                                    'token' => '${ .token }',
+                                ],
+                            ],
+                        ]),
+                    ]),
+                    'timeout' => 'short',
+                ]),
+                'markAsSold' => new SetTask([
+                    'set' => [
+                        'status' => 'sold',
                     ],
-                    'end' => true,
                 ]),
-            ],
-            'functions' => [
-                new FunctionDef([
-                    'name' => 'greetingFunction',
-                    'operation' => 'file://myapis/greetingapis.json#greeting',
+                'buyPet' => new CallHttp([
+                    'with' => [
+                        'method' => 'put',
+                        'endpoint' => 'https://petstore.swagger.io/v2/pet/{petId}',
+                        'body' => '${ . + { status: .status } }',
+                    ],
+                    'then' => 'end',
                 ]),
-            ],
+            ]),
+            'timeout' => new Timeout([
+                'after' => 'PT5M',
+            ]),
         ]);
-        $this->assertEquals($this->workflow, $workflow);
+
+        self::assertEquals($this->workflow, $workflow);
     }
 
     public function testToJson(): void
     {
-        $this->assertSame($this->json, $this->workflow->toJson());
+        self::assertSame($this->json, $this->workflow->toJson());
     }
 
     public function testFromJson(): void
     {
-        $workflow = Workflow::fromJson($this->json);
-        $this->assertEquals($this->workflow, $workflow);
+        self::assertEquals($this->workflow, Workflow::fromJson($this->json));
     }
 
     public function testToYaml(): void
     {
-        $this->assertSame($this->yaml, $this->workflow->toYaml());
+        self::assertSame($this->yaml, $this->workflow->toYaml());
     }
 
     public function testFromYaml(): void
     {
-        $workflow = Workflow::fromYaml($this->yaml);
-        $this->assertEquals($this->workflow, $workflow);
+        self::assertEquals($this->workflow, Workflow::fromYaml($this->yaml));
+    }
+
+    public function testTypedAccess(): void
+    {
+        self::assertNotNull($this->workflow->do);
+        $getPet = $this->workflow->do->get('getPet');
+        self::assertInstanceOf(CallHttp::class, $getPet);
+        self::assertSame('http', $getPet->call);
+        self::assertNotNull($getPet->with);
+        self::assertSame('get', $getPet->with->method);
+        self::assertInstanceOf(Endpoint::class, $getPet->with->endpoint);
+        self::assertNotNull($getPet->with->endpoint->authentication);
+        self::assertNotNull($getPet->with->endpoint->authentication->bearer);
+        self::assertSame('${ .token }', $getPet->with->endpoint->authentication->bearer->token);
+        self::assertSame('short', $getPet->timeout);
+
+        $buyPet = $this->workflow->do->get('buyPet');
+        self::assertInstanceOf(CallHttp::class, $buyPet);
+        self::assertNotNull($buyPet->with);
+        self::assertSame('https://petstore.swagger.io/v2/pet/{petId}', $buyPet->with->endpoint);
+        self::assertSame('end', $buyPet->then);
+
+        self::assertSame(['getPet', 'markAsSold', 'buyPet'], $this->workflow->do->names());
+        self::assertInstanceOf(Timeout::class, $this->workflow->timeout);
+        self::assertSame('PT5M', $this->workflow->timeout->after);
+        self::assertNotNull($this->workflow->use);
+        self::assertNotNull($this->workflow->use->timeouts);
+        self::assertInstanceOf(Duration::class, $this->workflow->use->timeouts['short']->after);
+        self::assertSame(30, $this->workflow->use->timeouts['short']->after->seconds);
     }
 
     public function testValidate(): void
     {
-        $this->expectNotToPerformAssertions();
-        WorkflowValidator::validate($this->workflow);
+        $this->workflow->validate();
+
+        self::assertSame([], WorkflowValidator::errors($this->workflow));
+        self::assertSame([], WorkflowValidator::errors($this->workflow->toArray()));
+    }
+
+    public function testValidateReportsErrors(): void
+    {
+        $workflow = Workflow::fromYaml($this->yaml);
+        self::assertNotNull($workflow->document);
+        $workflow->document->version = null;
+        $getPet = $workflow->do?->get('getPet');
+        self::assertInstanceOf(CallHttp::class, $getPet);
+        self::assertNotNull($getPet->with);
+        $getPet->with->setAdditionalProperty('unexpected', true);
+
+        try {
+            $workflow->validate();
+            self::fail('Expected a validation exception.');
+        } catch (WorkflowValidationException $workflowValidationException) {
+            $errors = $workflowValidationException->getErrors();
+            self::assertArrayHasKey('/document', $errors);
+            self::assertStringContainsString('version', implode(' ', $errors['/document']));
+            self::assertArrayHasKey('/do/0/getPet/with', $errors);
+            self::assertStringContainsString('/document', $workflowValidationException->getMessage());
+        }
+    }
+
+    public function testPreservesUnknownProperties(): void
+    {
+        $workflow = Workflow::fromJson(
+            '{"document":{"dsl":"1.0.1","namespace":"a","name":"b","version":"1.0.0","x-custom":1},"do":[{"wait":{"wait":"PT1S","x-note":"n"}}]}'
+        );
+
+        self::assertNotNull($workflow->document);
+        self::assertSame([
+            'x-custom' => 1,
+        ], $workflow->document->getAdditionalProperties());
+        self::assertSame(1, $workflow->toArray()['document']['x-custom']);
+        self::assertSame('n', $workflow->toArray()['do'][0]['wait']['x-note']);
+        self::assertArrayHasKey('/document', WorkflowValidator::errors($workflow));
+    }
+
+    public function testEmptyObjectsSerializeAsObjects(): void
+    {
+        $workflow = Workflow::fromYaml(
+            "document:\n  dsl: '1.0.1'\n  namespace: a\n  name: b\n  version: '1.0.0'\ndo:\n  - tryIt:\n      try:\n        - wait:\n            wait: PT1S\n      catch:\n        retry:\n          backoff:\n            exponential: {}\n"
+        );
+        $tryIt = $workflow->do?->get('tryIt');
+
+        self::assertInstanceOf(TryTask::class, $tryIt);
+        self::assertStringContainsString('"exponential": {}', $workflow->toJson());
+        self::assertStringContainsString('exponential: {  }', $workflow->toYaml());
+        self::assertSame([], WorkflowValidator::errors($workflow));
     }
 }

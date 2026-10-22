@@ -20,208 +20,90 @@ declare(strict_types=1);
 
 namespace Serverless\Workflow;
 
-use phpDocumentor\Reflection\DocBlockFactory;
-use phpDocumentor\Reflection\Types\ContextFactory;
 use ReflectionClass;
-use ReflectionNamedType;
 use ReflectionProperty;
-use ReflectionUnionType;
+use Serverless\Workflow\Hydration\Hydratable;
+use Serverless\Workflow\Hydration\Hydrator;
+use Serverless\Workflow\Serialization\Serializer;
 
-abstract class BaseObject
+/**
+ * Base class of every DSL model object.
+ *
+ * Public properties mirror the DSL properties. Unknown properties are preserved as additional properties so that a
+ * definition can be parsed, serialized and validated without losing data.
+ */
+abstract class BaseObject implements Hydratable
 {
     /**
-     * @param mixed[] $data
+     * @var array<string, mixed>
      */
-    public function __construct(array $data)
-    {
-        if ($data === []) {
-            return;
-        }
-        $this->initializeProperties($data);
-    }
+    private array $additionalProperties = [];
 
     /**
      * @param mixed[] $data
      */
-    private function initializeProperties(array $data): void
+    public function __construct(array $data = [])
     {
-        $reflectionClass = new ReflectionClass($this);
-        foreach ($data as $key => $value) {
-            if ($reflectionClass->hasProperty($key)) {
-                $property = $reflectionClass->getProperty($key);
-                $this->assignValue($property, $value);
-            }
-        }
+        $this->additionalProperties = Hydrator::hydrate($this, $data);
     }
 
-    private function assignValue(ReflectionProperty $reflectionProperty, mixed $value): void
+    public static function fromArray(array $data): static
     {
-        $type = $reflectionProperty->getType();
+        $class = static::resolveClass($data);
 
-        if (! empty($this->getTypeFromProperty($reflectionProperty))) {
-            $this->handleDocCommentType($reflectionProperty, $value);
-        } elseif ($type instanceof ReflectionUnionType) {
-            $this->handleUnionType($reflectionProperty, $value, $type->getTypes());
-        } elseif ($type instanceof ReflectionNamedType) {
-            $this->handleNamedType($reflectionProperty, $value, $type);
-        }
+        return new $class($data);
     }
 
     /**
-     * @param mixed[] $types
+     * @return array<string, mixed>
      */
-    private function handleUnionType(ReflectionProperty $reflectionProperty, mixed $value, array $types): void
+    public function getAdditionalProperties(): array
     {
-        foreach ($types as $type) {
-            if ($this->canInstantiateType($type, $value)) {
-                $typeName = $type->getName();
-                $this->instantiateAndSetValue($reflectionProperty, $value, $typeName);
-                return;
-            }
-        }
+        return $this->additionalProperties;
     }
 
-    private function handleNamedType(
-        ReflectionProperty $reflectionProperty,
-        mixed $value,
-        ReflectionNamedType $reflectionNamedType
-    ): void {
-        $typeName = $reflectionNamedType->getName();
-        $this->instantiateAndSetValue($reflectionProperty, $value, $typeName);
-    }
-
-    private function handleDocCommentType(ReflectionProperty $reflectionProperty, mixed $value): void
+    public function setAdditionalProperty(string $name, mixed $value): static
     {
-        $typeHints = $this->getTypeFromProperty($reflectionProperty);
-        if (! empty($typeHints)) {
-            foreach ($typeHints as $typeHint) {
-                if ($this->canInstantiateTypeFromDoc($typeHint, $value)) {
-                    $this->instantiateAndSetValue($reflectionProperty, $value, $typeHint);
-                    return;
-                }
-            }
-        }
+        $this->additionalProperties[$name] = $value;
 
-        $reflectionProperty->setValue($this, $value);
+        return $this;
     }
 
     /**
-     * @return string[]
+     * Returns the non-null property values, in serialization order, followed by the additional properties.
+     *
+     * @return array<string, mixed>
      */
-    private function getTypeFromProperty(ReflectionProperty $reflectionProperty): array
+    public function properties(): array
     {
-        $docComment = $reflectionProperty->getDocComment();
-        if ($docComment === false) {
-            return [];
-        }
+        $properties = [];
+        foreach ((new ReflectionClass($this))->getProperties(ReflectionProperty::IS_PUBLIC) as $reflectionProperty) {
+            if ($reflectionProperty->isStatic()) {
+                continue;
+            }
 
-        $docBlockFactory = DocBlockFactory::createInstance();
-        $docblock = $docBlockFactory->create(
-            $docComment,
-            (new ContextFactory())->createFromReflector($reflectionProperty)
-        );
-
-        $varTags = $docblock->getTagsByName('var');
-        if ($varTags !== []) {
-            return array_map('trim', explode('|', $varTags[0]->__toString()));
-        }
-
-        return [];
-    }
-
-    private function canInstantiateTypeFromDoc(string $typeName, mixed $value): bool
-    {
-        if (str_contains($typeName, '[]')) {
-            return is_array($value);
-        }
-        return class_exists($typeName) || is_scalar($value);
-    }
-
-    private function canInstantiateType(ReflectionNamedType $reflectionNamedType, mixed $value): bool
-    {
-        $typeName = $reflectionNamedType->getName();
-
-        if ($typeName === 'bool') {
-            return is_bool($value);
-        }
-
-        if ($typeName === 'string') {
-            return is_string($value);
-        }
-
-        if ($typeName === 'array') {
-            return is_array($value);
-        }
-
-        if (! class_exists($typeName)) {
-            return false;
-        }
-
-        if (is_a($value, $typeName)) {
-            return true;
-        }
-
-        if (! is_array($value)) {
-            return false;
-        }
-
-        $reflectionClass = new ReflectionClass($typeName);
-        $properties = array_map(
-            static fn (ReflectionProperty $property): string => $property->getName(),
-            $reflectionClass->getProperties(ReflectionProperty::IS_PUBLIC)
-        );
-
-        foreach (array_keys($value) as $key) {
-            if (! in_array($key, $properties, true)) {
-                return false;
+            $value = $reflectionProperty->getValue($this);
+            if ($value !== null) {
+                $properties[$reflectionProperty->getName()] = $value;
             }
         }
 
-        return true;
+        return $properties + $this->additionalProperties;
     }
 
-    private function instantiateAndSetValue(
-        ReflectionProperty $reflectionProperty,
-        mixed $value,
-        string $typeName
-    ): void {
-        if (str_contains($typeName, '[]')) {
-            $singleTypeName = str_replace('[]', '', $typeName);
-            $objects = [];
-            foreach ($value as $item) {
-                if ($singleTypeName === '\\' . \Serverless\Workflow\State::class && is_array($item)) {
-                    foreach (glob(__DIR__ . '/*.php') as $filename) {
-                        $class = '\\Serverless\\Workflow\\' . basename($filename, '.php');
-                        if (class_exists($class) && is_subclass_of($class, '\\' . \Serverless\Workflow\State::class)) {
-                            $reflection = new ReflectionClass($class);
-                            if ($reflection->hasProperty('type')) {
-                                $instance = $reflection->newInstance([]);
-                                $typeValue = $reflection->getProperty('type')
-                                    ->getValue($instance);
-                                if ($typeValue === $item['type']) {
-                                    $singleTypeName = $class;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
+    public function toArray(): array
+    {
+        return Serializer::toArray($this);
+    }
 
-                if (is_a($item, $singleTypeName)) {
-                    $objects[] = $item;
-                } else {
-                    $objects[] = new $singleTypeName($item);
-                }
-            }
-            $reflectionProperty->setValue($this, $objects);
-        } elseif (class_exists($typeName)) {
-            if (is_a($value, $typeName)) {
-                $reflectionProperty->setValue($this, $value);
-            } else {
-                $reflectionProperty->setValue($this, new $typeName($value));
-            }
-        } else {
-            $reflectionProperty->setValue($this, $value);
-        }
+    /**
+     * Returns the concrete class to instantiate for the given data. Polymorphic models override this.
+     *
+     * @param mixed[] $data
+     * @return class-string<static>
+     */
+    protected static function resolveClass(array $data): string
+    {
+        return static::class;
     }
 }
