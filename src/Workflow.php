@@ -20,110 +20,80 @@ declare(strict_types=1);
 
 namespace Serverless\Workflow;
 
+use InvalidArgumentException;
+use Serverless\Workflow\Serialization\Serializer;
 use Symfony\Component\Yaml\Yaml;
 
+/**
+ * A workflow definition as described by the Open Workflow Specification DSL.
+ */
 final class Workflow extends BaseObject
 {
-    public string|null $id = null;
-
-    public string|null $key = null;
-
-    public string|null $name = null;
-
-    public string|null $description = null;
-
-    public string|null $version = null;
-
-    /** @var string[]|null */
-    public array|null $annotations = null;
-
-    public string|DataInputSchema|null $dataInputSchema = null;
-
-    public string|null $secrets = null;
-
-    /** @var mixed[] */
-    public string|array|null $constants = null;
-
-    public string|StartDef|null $start = null;
-
-    public string|null $specVersion = null;
-
-    public string|null $expressionLang = null;
-
-    public string|WorkflowTimeOut|null $timeouts = null;
-
-    /** @var mixed[] */
-    public string|array|null $errors = null;
-
-    public bool|null $keepActive = null;
-
-    public Metadata|null $metadata = null;
-
-    /** @var mixed[] */
-    public string|array|null $events = null;
-
-    /** @var string|FunctionDef[]|null */
-    public string|array|null $functions = null;
-
-    public bool|null $autoRetries = null;
-
-    /** @var mixed[] */
-    public string|array|null $retries = null;
-
-    /** @var mixed[] */
-    public string|array|null $auth = null;
-
-    /** @var State[]|null */
-    public array|null $states = null;
-
     /**
-     * @param mixed[] $data
+     * The DSL version this SDK conforms to.
      */
-    public function __construct(array $data = [])
-    {
-        parent::__construct($data);
-        $this->keepActive ??= true;
-    }
+    public const DSL_VERSION = '1.0.1';
 
-    /**
-     * @return mixed[]
-     */
-    public function toArray(): array
-    {
-        $convertObjectsToArray = static function ($input) use (&$convertObjectsToArray) {
-            if (is_object($input)) {
-                $input = get_object_vars($input);
-            }
-            if (is_array($input)) {
-                $input = array_filter($input, static fn ($value): bool => $value !== null);
+    public Document|null $document = null;
 
-                foreach ($input as $key => $value) {
-                    $input[$key] = $convertObjectsToArray($value);
-                }
-            }
-            return $input;
-        };
+    public Input|null $input = null;
 
-        return $convertObjectsToArray($this);
-    }
+    public Components|null $use = null;
+
+    public TaskList|null $do = null;
+
+    public string|Timeout|null $timeout = null;
+
+    public Output|null $output = null;
+
+    public Schedule|null $schedule = null;
 
     public function toJson(): string
     {
-        return json_encode($this->toArray(), JSON_PRETTY_PRINT) ?: '';
+        return json_encode(
+            Serializer::normalize($this, true),
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        );
     }
 
     public static function fromJson(string $json): self
     {
-        return new self(json_decode($json, true, 512, JSON_THROW_ON_ERROR));
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (! is_array($data)) {
+            throw new InvalidArgumentException('A workflow definition must be a JSON object.');
+        }
+
+        return new self($data);
     }
 
     public function toYaml(): string
     {
-        return Yaml::dump($this->toArray(), 100, 2, Yaml::DUMP_OBJECT_AS_MAP);
+        $yaml = Yaml::dump(
+            Serializer::normalize($this, true),
+            100,
+            2,
+            Yaml::DUMP_OBJECT_AS_MAP | Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK
+        );
+
+        // Start list items that hold a mapping on the dash line ("- name:"), as the specification examples do.
+        return preg_replace('/^( *)-\n\1  (?=\S)/m', '$1- ', $yaml) ?? $yaml;
     }
 
     public static function fromYaml(string $yaml): self
     {
-        return new self(Yaml::parse($yaml));
+        $data = Yaml::parse($yaml);
+        if (! is_array($data)) {
+            throw new InvalidArgumentException('A workflow definition must be a YAML mapping.');
+        }
+
+        return new self($data);
+    }
+
+    /**
+     * Validates the definition against the DSL schema.
+     */
+    public function validate(): void
+    {
+        WorkflowValidator::validate($this);
     }
 }

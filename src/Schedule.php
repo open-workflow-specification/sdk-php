@@ -20,11 +20,18 @@ declare(strict_types=1);
 
 namespace Serverless\Workflow;
 
+use Serverless\Workflow\Event\EventConsumptionStrategy;
+
+/**
+ * Schedules the workflow.
+ */
 final class Schedule extends BaseObject
 {
-    public string|null $interval = null;
+    public string|Duration|null $every = null;
 
-    public string|CronDef|null $cron = null;
+    public string|null $cron = null;
 
-    public string|null $timezone = null;
+    public string|Duration|null $after = null;
+
+    public EventConsumptionStrategy|null $on = null;
 }

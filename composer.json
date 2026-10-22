@@ -1,28 +1,40 @@
 {
     "name": "serverlessworkflow/sdk",
-    "description": "Provides the PHP API/SPI for the Serverless Workflow Specification.",
+    "description": "Provides the PHP API/SPI for the Open Workflow Specification (formerly Serverless Workflow Specification).",
     "type": "library",
     "license": "Apache-2.0",
-    "autoload": {
-        "psr-4": {
-            "Serverless\\Workflow\\": "src/"
-        }
-    },
+    "keywords": [
+        "workflow",
+        "serverless-workflow",
+        "open-workflow-specification",
+        "dsl"
+    ],
+    "homepage": "https://github.com/open-workflow-specification/sdk-php",
     "authors": [
         {
             "name": "Serverless Workflow Specification Authors"
         }
     ],
+    "require": {
+        "php": "^8.2",
+        "opis/json-schema": "^2.4",
+        "symfony/yaml": "^6.4 || ^7.0"
+    },
     "require-dev": {
         "phpstan/phpstan": "^1.9",
         "phpunit/phpunit": "^10.4",
         "rector/rector": "^0.18.10",
         "symplify/easy-coding-standard": "^11.1"
     },
-    "require": {
-        "symfony/yaml": "^6.3",
-        "phpdocumentor/reflection-docblock": "^5.3",
-        "swaggest/json-schema": "^0.12.42"
+    "autoload": {
+        "psr-4": {
+            "Serverless\\Workflow\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Serverless\\Workflow\\Tests\\": "tests/"
+        }
     },
     "scripts": {
         "rector": "vendor/bin/rector",

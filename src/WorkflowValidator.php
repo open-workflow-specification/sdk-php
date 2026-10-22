@@ -20,15 +20,101 @@ declare(strict_types=1);
 
 namespace Serverless\Workflow;
 
-use Swaggest\JsonSchema\Schema;
+use InvalidArgumentException;
+use Opis\JsonSchema\Errors\ErrorFormatter;
+use Opis\JsonSchema\Validator;
+use RuntimeException;
+use Serverless\Workflow\Serialization\Serializer;
 
+/**
+ * Validates workflow definitions against the DSL JSON schema bundled with the SDK.
+ */
 final class WorkflowValidator
 {
-    public const SCHEMAS_WORKFLOW_JSON = 'https://serverlessworkflow.io/schemas/0.8/workflow.json';
+    public const SCHEMA_PATH = __DIR__ . '/../schema/workflow.json';
 
-    public static function validate(Workflow $workflow): void
+    private const MAX_ERRORS = 100;
+
+    private static object|null $schema = null;
+
+    /**
+     * @param Workflow|mixed[] $workflow
+     */
+    public static function validate(Workflow|array $workflow): void
     {
-        $schemaContract = Schema::import(self::SCHEMAS_WORKFLOW_JSON);
-        $schemaContract->in(json_decode((string) $workflow->toJson(), null, 512, JSON_THROW_ON_ERROR));
+        $errors = self::errors($workflow);
+        if ($errors !== []) {
+            throw new WorkflowValidationException($errors);
+        }
+    }
+
+    /**
+     * Returns the validation errors keyed by JSON pointer, or an empty array when the definition is valid.
+     *
+     * @param Workflow|mixed[] $workflow
+     * @return array<string, list<string>>
+     */
+    public static function errors(Workflow|array $workflow): array
+    {
+        $decoded = json_decode(
+            json_encode(self::normalize($workflow), JSON_THROW_ON_ERROR),
+            false,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $validator = new Validator();
+        $validator->setMaxErrors(self::MAX_ERRORS);
+        $result = $validator->validate($decoded, self::schema());
+        $error = $result->error();
+        if ($error === null) {
+            return [];
+        }
+
+        $errors = [];
+        foreach ((new ErrorFormatter())->format($error) as $pointer => $messages) {
+            $errors[(string) $pointer] = array_values(array_map('strval', (array) $messages));
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Arrays are hydrated into the model first so that empty objects the model knows about (for example an empty
+     * backoff definition) are encoded as objects rather than empty lists. Data the model cannot hydrate is
+     * validated as is.
+     *
+     * @param Workflow|mixed[] $workflow
+     */
+    private static function normalize(Workflow|array $workflow): mixed
+    {
+        if (is_array($workflow)) {
+            try {
+                $workflow = new Workflow($workflow);
+            } catch (InvalidArgumentException) {
+                return $workflow;
+            }
+        }
+
+        return Serializer::normalize($workflow, true);
+    }
+
+    private static function schema(): object
+    {
+        if (self::$schema === null) {
+            $contents = file_get_contents(self::SCHEMA_PATH);
+            if ($contents === false) {
+                throw new RuntimeException(sprintf('Unable to read the workflow schema at %s.', self::SCHEMA_PATH));
+            }
+
+            $schema = json_decode($contents, false, 512, JSON_THROW_ON_ERROR);
+            if (! is_object($schema)) {
+                throw new RuntimeException('The workflow schema must be a JSON object.');
+            }
+
+            self::$schema = $schema;
+        }
+
+        return self::$schema;
     }
 }
